@@ -6,5 +6,6 @@
     <entry name="ignoreVDesktop" type="String"><label>Desktops Krohnkite leaves untiled (comma-separated names, mirrored)</label><default></default></entry>
     <entry name="borderColor" type="String"><label>Frame colour (#rrggbb, the theme accent; Maprisma Theme writes it)</label><default>#3daee9</default></entry>
     <entry name="borderWidth" type="Int"><label>Frame width in pixels</label><default>3</default></entry>
+    <entry name="edgeInset" type="Int"><label>A frame side on the screen edge moves in by this many pixels</label><default>6</default></entry>
   </group>
 </kcfg>
