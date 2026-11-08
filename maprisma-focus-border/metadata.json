@@ -1,0 +1,15 @@
+{
+  "KPackageStructure": "KWin/Script",
+  "KPlugin": {
+    "Name": "Maprisma Focus Border",
+    "Description": "A frame in the theme's focus colour around the active window on desktops Krohnkite tiles",
+    "Id": "maprisma-focus-border",
+    "Version": "1.0",
+    "License": "MIT",
+    "Authors": [{ "Name": "Uwe Bruckhaus", "Email": "uwe.bruckhaus@t-online.de" }],
+    "EnabledByDefault": true
+  },
+  "X-Plasma-API": "declarativescript",
+  "X-Plasma-API-Minimum-Version": "6.0",
+  "X-Plasma-MainScript": "ui/main.qml"
+}

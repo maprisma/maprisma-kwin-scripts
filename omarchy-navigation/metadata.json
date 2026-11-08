@@ -1,0 +1,14 @@
+{
+  "KPackageStructure": "KWin/Script",
+  "KPlugin": {
+    "Name": "Omarchy Navigation",
+    "Description": "Omarchy's window actions KWin lacks: move to desktop and follow, former desktop, close all, pop out, scratchpad",
+    "Id": "omarchy-navigation",
+    "Version": "1.0",
+    "License": "MIT",
+    "Authors": [{"Name": "Uwe Bruckhaus", "Email": "uwe.bruckhaus@t-online.de"}],
+    "EnabledByDefault": true
+  },
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js"
+}

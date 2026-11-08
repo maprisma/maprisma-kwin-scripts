@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0">
+  <kcfgfile name=""/>
+  <group name="">
+    <entry name="tilingOn" type="Bool"><label>Krohnkite is on (mirrored by Maprisma Theme)</label><default>false</default></entry>
+    <entry name="ignoreVDesktop" type="String"><label>Desktops Krohnkite leaves untiled (comma-separated names, mirrored)</label><default></default></entry>
+    <entry name="borderWidth" type="Int"><label>Frame width in pixels</label><default>3</default></entry>
+  </group>
+</kcfg>
