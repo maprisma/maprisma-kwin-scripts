@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""maprisma-active-frame: draws the active window's frame for the KWin script
+of the same name.
+
+KWin scripts cannot draw correctly scaled windows of their own, so the script
+sends the frame here over D-Bus (org.maprisma.ActiveFrame, method Set with a
+JSON string {shown, x, y, w, h, width, colour}, logical pixels) and this
+draws it on a transparent layer-shell overlay that takes no input. Started by
+D-Bus activation on the first call; quits after 10 minutes without a frame.
+
+Needs gtk4-layer-shell, loaded before libwayland (LD_PRELOAD, see the
+D-Bus service file).
+"""
+import json
+import sys
+
+import gi
+gi.require_version('Gtk', '4.0')
+gi.require_version('Gdk', '4.0')
+gi.require_version('Gtk4LayerShell', '1.0')
+from gi.repository import Gdk, Gio, GLib, Gtk, Gtk4LayerShell as Layer  # noqa: E402
+import cairo  # noqa: E402
+
+NAME = 'org.maprisma.ActiveFrame'
+PATH = '/org/maprisma/ActiveFrame'
+XML = f'''<node><interface name="{NAME}">
+  <method name="Set"><arg type="s" name="frame" direction="in"/></method>
+</interface></node>'''
+IDLE_QUIT_S = 600
+
+
+class Overlay:
+    def __init__(self, app):
+        self.app = app
+        self.frame = {'shown': False}
+        self.windows = {}  # monitor -> (window, area)
+        self.idle = None
+        display = Gdk.Display.get_default()
+        monitors = display.get_monitors()
+        monitors.connect('items-changed', lambda *_: self.sync_monitors())
+        self.sync_monitors()
+        self.arm_idle()
+
+    def sync_monitors(self):
+        monitors = Gdk.Display.get_default().get_monitors()
+        present = [monitors.get_item(i) for i in range(monitors.get_n_items())]
+        for m in list(self.windows):
+            if m not in present:
+                self.windows.pop(m)[0].destroy()
+        for m in present:
+            if m not in self.windows:
+                self.windows[m] = self.make(m)
+
+    def make(self, monitor):
+        win = Gtk.Window(application=self.app)
+        win.set_decorated(False)
+        win.add_css_class('maprisma-active-frame')
+        Layer.init_for_window(win)
+        Layer.set_namespace(win, 'maprisma-active-frame')
+        Layer.set_layer(win, Layer.Layer.OVERLAY)
+        Layer.set_monitor(win, monitor)
+        for edge in (Layer.Edge.TOP, Layer.Edge.BOTTOM, Layer.Edge.LEFT, Layer.Edge.RIGHT):
+            Layer.set_anchor(win, edge, True)
+        Layer.set_exclusive_zone(win, -1)
+        Layer.set_keyboard_mode(win, Layer.KeyboardMode.NONE)
+        area = Gtk.DrawingArea()
+        area.set_draw_func(self.draw, monitor)
+        win.set_child(area)
+        win.connect('realize', lambda w: self.no_input(w))
+        win.connect('map', lambda w: self.no_input(w))
+        win.present()
+        win.set_visible(self.frame.get('shown', False))
+        return win, area
+
+    @staticmethod
+    def no_input(win):
+        surface = win.get_surface()
+        if surface is not None:
+            surface.set_input_region(cairo.Region())
+
+    def draw(self, area, cr, width, height, monitor):
+        f = self.frame
+        if not f.get('shown'):
+            return
+        g = monitor.get_geometry()
+        bw = max(1, min(16, int(f.get('width', 3))))
+        rgba = Gdk.RGBA()
+        if not rgba.parse(str(f.get('colour', '#3daee9'))):
+            rgba.parse('#3daee9')
+        cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, 1.0)
+        x, y = f['x'] - g.x, f['y'] - g.y
+        w, h = f['w'], f['h']
+        cr.set_line_width(bw)
+        cr.rectangle(x + bw / 2, y + bw / 2, max(0, w - bw), max(0, h - bw))
+        cr.stroke()
+
+    def set(self, frame):
+        try:
+            f = json.loads(frame)
+            shown = bool(f.get('shown')) and all(isinstance(f.get(k), (int, float)) for k in 'xywh')
+        except (ValueError, AttributeError):
+            return
+        self.frame = f if shown else {'shown': False}
+        for win, area in self.windows.values():
+            win.set_visible(shown)
+            if shown:
+                self.no_input(win)
+                area.queue_draw()
+        self.arm_idle()
+
+    def arm_idle(self):
+        if self.idle:
+            GLib.source_remove(self.idle)
+        self.idle = GLib.timeout_add_seconds(IDLE_QUIT_S, self.quit_if_idle)
+
+    def quit_if_idle(self):
+        self.idle = None
+        if not self.frame.get('shown'):
+            self.app.quit()
+            return False
+        self.arm_idle()
+        return False
+
+
+def main():
+    app = Gtk.Application(application_id='org.maprisma.ActiveFrameOverlay', flags=Gio.ApplicationFlags.NON_UNIQUE)
+    state = {}
+
+    def on_call(conn, sender, path, iface, method, params, invocation):
+        if method == 'Set' and 'overlay' in state:
+            state['overlay'].set(params.unpack()[0])
+        invocation.return_value(None)
+
+    def activate(app):
+        app.hold()
+        state['overlay'] = Overlay(app)
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+        info = Gio.DBusNodeInfo.new_for_xml(XML).interfaces[0]
+        bus.register_object(PATH, info, on_call, None, None)
+        # DoNotQueue: a second copy gives up instead of waiting for the name.
+        reply = bus.call_sync('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus',
+                              'RequestName', GLib.Variant('(su)', (NAME, 4)), GLib.VariantType('(u)'),
+                              Gio.DBusCallFlags.NONE, -1, None).unpack()[0]
+        if reply not in (1, 4):
+            print('another overlay owns', NAME, file=sys.stderr)
+            app.quit()
+        css = Gtk.CssProvider()
+        css.load_from_string('window.maprisma-active-frame { background: transparent; }')
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    app.connect('activate', activate)
+    return app.run([])
+
+
+if __name__ == '__main__':
+    sys.exit(main())

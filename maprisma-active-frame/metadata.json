@@ -1,9 +1,9 @@
 {
   "KPackageStructure": "KWin/Script",
   "KPlugin": {
-    "Name": "Maprisma Focus Border",
+    "Name": "Maprisma Active Frame",
     "Description": "A frame in the theme's focus colour around the active window on desktops Krohnkite tiles",
-    "Id": "maprisma-focus-border",
+    "Id": "maprisma-active-frame",
     "Version": "1.0",
     "License": "MIT",
     "Authors": [{ "Name": "Uwe Bruckhaus", "Email": "uwe.bruckhaus@t-online.de" }],
