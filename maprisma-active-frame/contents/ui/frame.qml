@@ -6,8 +6,7 @@
  *
  * Settings come from this script's own kwinrc group, written by Maprisma
  * Theme: tilingOn, ignoreVDesktop (mirrored from Krohnkite), borderColor,
- * borderWidth (0 = no frame), edgeInset (a side on the screen edge moves in
- * by this many pixels; TVs cut off the outermost ones). Re-read every 2 s, so changes apply live.
+ * borderWidth (0 = no frame). Re-read every 2 s, so changes apply live.
  */
 import QtQuick
 import org.kde.kwin
@@ -19,15 +18,12 @@ Item {
     property var win: Workspace.activeWindow
     property bool tiledDesktop: false
     property int bw: 3
-    property int inset: 6
     property color colour: "#3daee9"
 
     function check() {
         const on = String(KWin.readConfig("tilingOn", false)) === "true";
         const ignored = String(KWin.readConfig("ignoreVDesktop", "")).split(",").map(s => s.trim()).filter(s => s.length);
         bw = Math.max(0, Math.min(16, Number(KWin.readConfig("borderWidth", 3)) || 0));
-        const ins = Number(KWin.readConfig("edgeInset", 6));
-        inset = Math.max(0, Math.min(32, isNaN(ins) ? 6 : ins));
         const c = String(KWin.readConfig("borderColor", "#3daee9"));
         if (/^#[0-9a-fA-F]{6}$/.test(c)) colour = c;
         const desk = Workspace.currentDesktop;
@@ -66,7 +62,7 @@ Item {
     property string sent: ""
     function send() {
         const f = shown
-            ? { shown: true, x: g.x, y: g.y, w: g.width, h: g.height, width: bw, colour: String(colour), inset: inset }
+            ? { shown: true, x: g.x, y: g.y, w: g.width, h: g.height, width: bw, colour: String(colour) }
             : { shown: false };
         const text = JSON.stringify(f);
         if (text === sent) return;
@@ -81,12 +77,9 @@ Item {
         });
     }
     Timer { id: soon; interval: 16; onTriggered: root.send() }
-    // Again every 10 s, so a restarted helper gets the frame back.
-    Timer { interval: 10000; running: true; repeat: true; onTriggered: { root.sent = ""; root.send(); } }
     onShownChanged: soon.restart()
     onGChanged: soon.restart()
     onBwChanged: soon.restart()
-    onInsetChanged: soon.restart()
     onColourChanged: soon.restart()
     Component.onCompleted: soon.restart()
 }

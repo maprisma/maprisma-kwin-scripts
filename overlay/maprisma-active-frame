@@ -4,7 +4,7 @@ of the same name.
 
 KWin scripts cannot draw correctly scaled windows of their own, so the script
 sends the frame here over D-Bus (org.maprisma.ActiveFrame, method Set with a
-JSON string {shown, x, y, w, h, width, colour, inset}, logical pixels) and this
+JSON string {shown, x, y, w, h, width, colour}, logical pixels) and this
 draws it on a transparent layer-shell overlay that takes no input. Started by
 D-Bus activation on the first call; quits after 10 minutes without a frame.
 
@@ -90,13 +90,10 @@ class Overlay:
         cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, 1.0)
         # Clipped to this monitor: a window reaching past the screen edge
         # (maximised, shadows) still shows all four sides.
-        # A side on the screen edge moves in by `inset`: TVs (overscan) and
-        # some monitors do not show the outermost pixels.
-        inset = max(0, min(32, int(f.get('inset', 6))))
-        left = max(float(inset), f['x'] - g.x)
-        top = max(float(inset), f['y'] - g.y)
-        right = min(float(width - inset), f['x'] - g.x + f['w'])
-        bottom = min(float(height - inset), f['y'] - g.y + f['h'])
+        left = max(0.0, f['x'] - g.x)
+        top = max(0.0, f['y'] - g.y)
+        right = min(float(width), f['x'] - g.x + f['w'])
+        bottom = min(float(height), f['y'] - g.y + f['h'])
         if right - left < 2 * bw or bottom - top < 2 * bw:
             return
         x, y, w, h = left, top, right - left, bottom - top
