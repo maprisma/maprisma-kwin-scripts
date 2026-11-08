@@ -4,7 +4,7 @@ of the same name.
 
 KWin scripts cannot draw correctly scaled windows of their own, so the script
 sends the frame here over D-Bus (org.maprisma.ActiveFrame, method Set with a
-JSON string {shown, x, y, w, h, width, colour}, logical pixels) and this
+JSON string {shown, x, y, w, h, width, colour, radius}, logical pixels) and this
 draws it on a transparent layer-shell overlay that takes no input. Started by
 D-Bus activation on the first call; quits after 10 minutes without a frame.
 
@@ -12,6 +12,7 @@ Needs gtk4-layer-shell, loaded before libwayland (LD_PRELOAD, see the
 D-Bus service file).
 """
 import json
+import math
 import sys
 
 import gi
@@ -97,8 +98,18 @@ class Overlay:
         if right - left < 2 * bw or bottom - top < 2 * bw:
             return
         x, y, w, h = left, top, right - left, bottom - top
+        # The window's corner radius (its outer edge); the stroke runs bw/2
+        # inside it, so its curve follows the window's own.
+        radius = max(0.0, min(float(f.get('radius', 10)), w / 2, h / 2))
+        r = max(0.0, radius - bw / 2)
+        x0, y0, x1, y1 = x + bw / 2, y + bw / 2, x + w - bw / 2, y + h - bw / 2
         cr.set_line_width(bw)
-        cr.rectangle(x + bw / 2, y + bw / 2, max(0, w - bw), max(0, h - bw))
+        cr.new_sub_path()
+        cr.arc(x1 - r, y0 + r, r, -math.pi / 2, 0)
+        cr.arc(x1 - r, y1 - r, r, 0, math.pi / 2)
+        cr.arc(x0 + r, y1 - r, r, math.pi / 2, math.pi)
+        cr.arc(x0 + r, y0 + r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
         cr.stroke()
 
     def set(self, frame):

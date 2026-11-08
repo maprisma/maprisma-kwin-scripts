@@ -6,7 +6,8 @@
  *
  * Settings come from this script's own kwinrc group, written by Maprisma
  * Theme: tilingOn, ignoreVDesktop (mirrored from Krohnkite), borderColor,
- * borderWidth (0 = no frame). Re-read every 2 s, so changes apply live.
+ * borderWidth (0 = no frame), cornerRadius (the windows' corner radius; KWin
+ * does not report it). Re-read after KWin reconfigures (Maprisma Theme does).
  */
 import QtQuick
 import org.kde.kwin
@@ -18,12 +19,15 @@ Item {
     property var win: Workspace.activeWindow
     property bool tiledDesktop: false
     property int bw: 3
+    property int radius: 10
     property color colour: "#3daee9"
 
     function check() {
         const on = String(KWin.readConfig("tilingOn", false)) === "true";
         const ignored = String(KWin.readConfig("ignoreVDesktop", "")).split(",").map(s => s.trim()).filter(s => s.length);
         bw = Math.max(0, Math.min(16, Number(KWin.readConfig("borderWidth", 3)) || 0));
+        const r = Number(KWin.readConfig("cornerRadius", 10));
+        radius = Math.max(0, Math.min(32, isNaN(r) ? 10 : r));
         const c = String(KWin.readConfig("borderColor", "#3daee9"));
         if (/^#[0-9a-fA-F]{6}$/.test(c)) colour = c;
         const desk = Workspace.currentDesktop;
@@ -62,7 +66,7 @@ Item {
     property string sent: ""
     function send() {
         const f = shown
-            ? { shown: true, x: g.x, y: g.y, w: g.width, h: g.height, width: bw, colour: String(colour) }
+            ? { shown: true, x: g.x, y: g.y, w: g.width, h: g.height, width: bw, colour: String(colour), radius: radius }
             : { shown: false };
         const text = JSON.stringify(f);
         if (text === sent) return;
@@ -82,6 +86,7 @@ Item {
     onShownChanged: soon.restart()
     onGChanged: soon.restart()
     onBwChanged: soon.restart()
+    onRadiusChanged: soon.restart()
     onColourChanged: soon.restart()
     Component.onCompleted: soon.restart()
 }
