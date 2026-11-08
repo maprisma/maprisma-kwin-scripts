@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""tiling-shortcuts: gives Maprisma Tiling's actions Omarchy's keys in KDE.
+
+  tiling-shortcuts            set the keys (after the script registered its actions)
+  tiling-shortcuts --restore  clear them and give the keys taken from other actions back
+
+Keys another action holds (Grid View has Super+G, KDE's desktop switching
+Super+Ctrl+Left/Right, ...) are taken from it first; what they had is saved
+once in ~/.local/state/maprisma-tiling/shortcuts-backup.json for --restore.
+Krohnkite's actions are unregistered. Keys are Qt key codes, so the German
+keys (ß, the dead key ´) are exact: they are the keys right of 0.
+"""
+import json
+import os
+import sys
+from pathlib import Path
+
+from gi.repository import Gio, GLib
+
+META, SHIFT, CTRL, ALT = 0x10000000, 0x02000000, 0x04000000, 0x08000000
+LEFT, UP, RIGHT, DOWN = 0x01000012, 0x01000013, 0x01000014, 0x01000015
+TAB, HOME = 0x01000001, 0x01000010
+SSHARP, DEAD_ACUTE = 0xDF, 0x01001251
+
+
+def key(char):
+    return ord(char.upper())
+
+
+PREFIX = 'Maprisma Tiling: '
+KEYS = {
+    'Focus Left': [META | LEFT], 'Focus Right': [META | RIGHT], 'Focus Up': [META | UP], 'Focus Down': [META | DOWN],
+    'Swap Left': [META | SHIFT | LEFT], 'Swap Right': [META | SHIFT | RIGHT],
+    'Swap Up': [META | SHIFT | UP], 'Swap Down': [META | SHIFT | DOWN],
+    'Toggle Floating': [META | key('t')],
+    'Tiled Full Screen': [META | CTRL | key('f')],
+    'Pseudo-tile': [META | key('p')],
+    'Toggle Split': [META | key('j')],
+    'Next Layout': [META | key('l')], 'Previous Layout': [META | ALT | key('l')],
+    'Save Width': [META | ALT | HOME], 'Restore Width': [META | HOME],
+    'Width -100': [META | SSHARP], 'Width +100': [META | DEAD_ACUTE],
+    'Height -100': [META | SHIFT | SSHARP], 'Height +100': [META | SHIFT | DEAD_ACUTE],
+    'Width -25': [META | ALT | SSHARP], 'Width +25': [META | ALT | DEAD_ACUTE],
+    'Height -25': [META | ALT | SHIFT | SSHARP], 'Height +25': [META | ALT | SHIFT | DEAD_ACUTE],
+    'Width -300': [META | CTRL | SSHARP], 'Width +300': [META | CTRL | DEAD_ACUTE],
+    'Height -300': [META | CTRL | SHIFT | SSHARP], 'Height +300': [META | CTRL | SHIFT | DEAD_ACUTE],
+    'Toggle Group': [META | key('g')], 'Move Out of Group': [META | ALT | key('g')],
+    'Move Into Group Left': [META | ALT | LEFT], 'Move Into Group Right': [META | ALT | RIGHT],
+    'Move Into Group Up': [META | ALT | UP], 'Move Into Group Down': [META | ALT | DOWN],
+    'Next in Group': [META | ALT | TAB], 'Previous in Group': [META | ALT | SHIFT | TAB],
+    'Next in Group (2)': [META | CTRL | RIGHT], 'Previous in Group (2)': [META | CTRL | LEFT],
+    **{f'Group Window {n}': [META | ALT | key(str(n))] for n in range(1, 6)},
+}
+
+STATE = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'maprisma-tiling'
+BACKUP = STATE / 'shortcuts-backup.json'
+
+bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+
+
+def accel(method, sig, args, path='/kglobalaccel', iface='org.kde.KGlobalAccel'):
+    v = GLib.Variant(sig, args) if sig else None
+    return bus.call_sync('org.kde.kglobalaccel', path, iface, method, v, None, 0, 5000, None).unpack()
+
+
+def keys_of(component, action):
+    return [k[0][0] for k in accel('shortcutKeys', '(as)', ([component, action, '', ''],))[0] if k[0][0]]
+
+
+def set_keys(component, action, keys):
+    accel('setForeignShortcutKeys', '(asa(ai))', ([component, action, '', ''], [([k, 0, 0, 0],) for k in keys]))
+
+
+def owners(k):
+    return [(i[2], i[0]) for i in accel('globalShortcutsByKey', '((ai)(i))', (([k, 0, 0, 0],), (0,)))[0]]
+
+
+def kwin_actions():
+    return accel('shortcutNames', None, None, path='/component/kwin', iface='org.kde.kglobalaccel.Component')[0]
+
+
+def apply():
+    names = kwin_actions()
+    missing = [n for n in KEYS if PREFIX + n not in names]
+    if missing:
+        print('Maprisma Tiling is not running (no actions: %s)' % ', '.join(missing[:3]), file=sys.stderr)
+        return 1
+    for n in names:
+        if n.startswith('Krohnkite'):
+            accel('unregister', '(ss)', ('kwin', n))
+    backup = json.loads(BACKUP.read_text()) if BACKUP.exists() else {}
+    ours = {PREFIX + n for n in KEYS}
+    for name, keys in KEYS.items():
+        for k in keys:
+            for comp, action in owners(k):
+                if comp == 'kwin' and action in ours:
+                    continue
+                had = keys_of(comp, action)
+                backup.setdefault(f'{comp}\t{action}', had)
+                set_keys(comp, action, [x for x in had if x != k])
+                print(f'took {k:#x} from {comp}/{action}')
+        set_keys('kwin', PREFIX + name, keys)
+    STATE.mkdir(parents=True, exist_ok=True)
+    BACKUP.write_text(json.dumps(backup, indent=1))
+    return 0
+
+
+def restore():
+    if not BACKUP.exists():
+        print('nothing to restore')
+        return 0
+    names = kwin_actions()
+    for n in KEYS:
+        if PREFIX + n in names:
+            set_keys('kwin', PREFIX + n, [])
+    for ident, keys in json.loads(BACKUP.read_text()).items():
+        comp, action = ident.split('\t', 1)
+        set_keys(comp, action, keys)
+    BACKUP.unlink()
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(restore() if '--restore' in sys.argv else apply())

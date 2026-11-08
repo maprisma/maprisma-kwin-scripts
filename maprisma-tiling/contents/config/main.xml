@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0">
+  <kcfgfile name=""/>
+  <group name="">
+    <entry name="untiledDesktops" type="String"><label>Desktop indices left untiled (comma-separated)</label><default></default></entry>
+    <entry name="gapTop" type="Int"><default>10</default></entry>
+    <entry name="gapRight" type="Int"><default>10</default></entry>
+    <entry name="gapBottom" type="Int"><default>10</default></entry>
+    <entry name="gapLeft" type="Int"><default>10</default></entry>
+    <entry name="gapBetween" type="Int"><default>10</default></entry>
+    <entry name="borderWidth" type="Int"><label>Active window frame width (0 = none)</label><default>3</default></entry>
+    <entry name="borderColor" type="String"><label>Frame colour (#rrggbb, the theme accent)</label><default>#3daee9</default></entry>
+    <entry name="cornerRadius" type="Int"><label>Corner radius of the windows</label><default>10</default></entry>
+    <entry name="limitsActive" type="Bool"><label>Window limits on</label><default>false</default></entry>
+    <entry name="defaultLimit" type="Int"><default>2</default></entry>
+    <entry name="limits" type="String"><label>Per-desktop limits ("1:2,3:3")</label><default></default></entry>
+    <entry name="floatingClasses" type="String"><label>App ids that always float</label><default>com.maprisma.Launcher</default></entry>
+    <entry name="defaultLayout" type="String"><label>dwindle, master, columns or monocle</label><default>dwindle</default></entry>
+    <entry name="build" type="String"><label>Build stamp (install.sh)</label><default>0</default></entry>
+  </group>
+</kcfg>
