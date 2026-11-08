@@ -77,6 +77,8 @@ Item {
         });
     }
     Timer { id: soon; interval: 16; onTriggered: root.send() }
+    // Again every 10 s, so a restarted helper gets the frame back.
+    Timer { interval: 10000; running: true; repeat: true; onTriggered: { root.sent = ""; root.send(); } }
     onShownChanged: soon.restart()
     onGChanged: soon.restart()
     onBwChanged: soon.restart()
