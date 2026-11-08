@@ -28,6 +28,9 @@ XML = f'''<node><interface name="{NAME}">
   <method name="Set"><arg type="s" name="frame" direction="in"/></method>
 </interface></node>'''
 IDLE_QUIT_S = 600
+# The script renews a shown frame every 10 s; one not renewed is hidden
+# (the script was unloaded or KWin restarted).
+STALE_S = 35
 
 
 class Overlay:
@@ -36,6 +39,8 @@ class Overlay:
         self.frame = {'shown': False}
         self.windows = {}  # monitor -> (window, area)
         self.idle = None
+        self.renewed = GLib.get_monotonic_time()
+        GLib.timeout_add_seconds(5, self.check_stale)
         display = Gdk.Display.get_default()
         monitors = display.get_monitors()
         monitors.connect('items-changed', lambda *_: self.sync_monitors())
@@ -119,12 +124,18 @@ class Overlay:
         except (ValueError, AttributeError):
             return
         self.frame = f if shown else {'shown': False}
+        self.renewed = GLib.get_monotonic_time()
         for win, area in self.windows.values():
             win.set_visible(shown)
             if shown:
                 self.no_input(win)
                 area.queue_draw()
         self.arm_idle()
+
+    def check_stale(self):
+        if self.frame.get('shown') and GLib.get_monotonic_time() - self.renewed > STALE_S * 1_000_000:
+            self.set('{"shown": false}')
+        return True
 
     def arm_idle(self):
         if self.idle:

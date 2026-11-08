@@ -81,8 +81,18 @@ Item {
         });
     }
     Timer { id: soon; interval: 16; onTriggered: root.send() }
-    // Again every 10 s, so a restarted helper gets the frame back.
-    Timer { interval: 10000; running: true; repeat: true; onTriggered: { root.sent = ""; root.send(); } }
+    // A shown frame again every 10 s: a restarted helper gets it back, and
+    // the helper hides a frame nobody renews (this script was unloaded).
+    Timer { interval: 10000; running: root.shown; repeat: true; onTriggered: { root.sent = ""; root.send(); } }
+    Component.onDestruction: {
+        if (sent !== "" && JSON.parse(sent).shown) {
+            DBus.SessionBus.asyncCall({
+                service: "org.maprisma.ActiveFrame", path: "/org/maprisma/ActiveFrame",
+                iface: "org.maprisma.ActiveFrame", member: "Set",
+                arguments: ['{"shown":false}'], signature: "(s)",
+            });
+        }
+    }
     onShownChanged: soon.restart()
     onGChanged: soon.restart()
     onBwChanged: soon.restart()
