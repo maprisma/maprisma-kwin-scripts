@@ -50,6 +50,20 @@ SERVICE
 busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig >/dev/null 2>&1 || true
 
 # --- settings: taken over once from Krohnkite and the active-frame script ---------------
+# Their kwinrc groups are saved first (they are deleted below).
+mkdir -p "$data/maprisma-tiling"
+python3 - "${XDG_CONFIG_HOME:-$HOME/.config}/kwinrc" "$data/maprisma-tiling" <<'PY'
+import sys, pathlib, time
+rc, out = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+keep, take = [], False
+for line in rc.read_text(errors='replace').splitlines():
+    if line.startswith('['):
+        take = line.split(']')[0] in ('[Script-krohnkite', '[Script-maprisma-active-frame')
+    if take:
+        keep.append(line)
+if keep:
+    (out / time.strftime('kwinrc-backup-%Y%m%d-%H%M%S.ini')).write_text('\n'.join(keep) + '\n')
+PY
 migrate() {  # new-key old-group old-key
   local v
   if [[ -z "$(get "$group" "$1")" ]]; then
@@ -64,6 +78,19 @@ migrate gapBottom Script-krohnkite screenGapBottom
 migrate gapLeft Script-krohnkite screenGapLeft
 migrate gapBetween Script-krohnkite screenGapBetween
 migrate floatingClasses Script-krohnkite floatingClass
+# Krohnkite left desktops untiled by name; Maprisma Tiling by index.
+if [[ -z "$(get "$group" untiledDesktops)" ]]; then
+  ignored=$(get Script-krohnkite ignoreVDesktop)
+  if [[ -n "$ignored" ]]; then
+    indices=()
+    IFS=',' read -ra names <<< "$ignored"
+    for i in $(seq 1 "$(kreadconfig6 --file kwinrc --group Desktops --key Number --default 1)"); do
+      name=$(kreadconfig6 --file kwinrc --group Desktops --key "Name_$i")
+      for n in "${names[@]}"; do [[ -n "$name" && "$(echo "$n" | xargs)" == "$name" ]] && indices+=("$i"); done
+    done
+    [[ ${#indices[@]} -gt 0 ]] && put untiledDesktops "$(IFS=,; echo "${indices[*]}")"
+  fi
+fi
 migrate borderWidth Script-maprisma-active-frame borderWidth
 migrate borderColor Script-maprisma-active-frame borderColor
 migrate cornerRadius Script-maprisma-active-frame cornerRadius

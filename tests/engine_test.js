@@ -14,6 +14,30 @@ t.eq(r.c, E.rect(505, 305, 495, 295), "dwindle c: bottom right");
 var s2 = E.newSurface("dwindle");
 E.addTile(s2, "a", null); E.addTile(s2, "b", "a"); E.addTile(s2, "c", "a");
 t.eq(s2.order, ["a", "c", "b"], "dwindle inserts after the active tile");
+// Codex's case: A | B, focus A, open C -> C splits A's half, B keeps its half
+r = E.layout(s2, area, 0).rects;
+t.eq(r.b, E.rect(500, 0, 500, 600), "b keeps the right half");
+t.eq([r.a, r.c], [E.rect(0, 0, 500, 300), E.rect(0, 300, 500, 300)], "a and c share the left half");
+// removing a tile gives its space to its sibling
+E.removeTile(s2, "c");
+t.eq(E.layout(s2, area, 0).rects.a, E.rect(0, 0, 500, 600), "a back to the left half");
+t.eq(E.leaves(s2.tree), ["a", "b"], "tree in step");
+// renaming (a window becomes a group) keeps the place
+t.ok(E.renameTile(s2, "a", "g1"), "rename");
+t.eq([s2.order, E.leaves(s2.tree)], [["g1", "b"], ["g1", "b"]], "renamed in order and tree");
+// hidden tiles: their sibling takes the space
+var h = E.newSurface("dwindle");
+E.addTile(h, "a", null); E.addTile(h, "b", "a"); E.addTile(h, "c", "b");
+r = E.layout(h, area, 0, function (tile) { return tile !== "b"; }).rects;
+t.eq([r.a, r.b, r.c], [E.rect(0, 0, 500, 600), undefined, E.rect(500, 0, 500, 600)], "b hidden: c takes its place");
+// swap in the tree
+E.swapTiles(h, "a", "c");
+t.eq(E.leaves(h.tree), ["c", "b", "a"], "swapped in the tree");
+// another layout, then back: the tree follows the order
+var sw2 = E.newSurface("master");
+E.addTile(sw2, "a", null); E.addTile(sw2, "b", "a"); E.addTile(sw2, "c", "a");
+sw2.layout = "dwindle";
+t.eq(Object.keys(E.layout(sw2, area, 0).rects).sort(), ["a", "b", "c"], "dwindle after master");
 var s3 = E.newSurface("master");
 E.addTile(s3, "a", null); E.addTile(s3, "b", "a"); E.addTile(s3, "c", "a");
 t.eq(s3.order, ["a", "b", "c"], "master appends");

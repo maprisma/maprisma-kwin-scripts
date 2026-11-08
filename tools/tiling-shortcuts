@@ -90,18 +90,24 @@ def apply():
             accel('unregister', '(ss)', ('kwin', n))
     backup = json.loads(BACKUP.read_text()) if BACKUP.exists() else {}
     ours = {PREFIX + n for n in KEYS}
+    # Everything to take, and the backup saved, before anything changes.
+    takes = []
     for name, keys in KEYS.items():
         for k in keys:
             for comp, action in owners(k):
                 if comp == 'kwin' and action in ours:
                     continue
-                had = keys_of(comp, action)
-                backup.setdefault(f'{comp}\t{action}', had)
-                set_keys(comp, action, [x for x in had if x != k])
-                print(f'took {k:#x} from {comp}/{action}')
-        set_keys('kwin', PREFIX + name, keys)
+                takes.append((comp, action, k))
+                backup.setdefault(f'{comp}\t{action}', keys_of(comp, action))
     STATE.mkdir(parents=True, exist_ok=True)
-    BACKUP.write_text(json.dumps(backup, indent=1))
+    tmp = BACKUP.with_suffix('.tmp')
+    tmp.write_text(json.dumps(backup, indent=1))
+    tmp.replace(BACKUP)
+    for comp, action, k in takes:
+        set_keys(comp, action, [x for x in keys_of(comp, action) if x != k])
+        print(f'took {k:#x} from {comp}/{action}')
+    for name, keys in KEYS.items():
+        set_keys('kwin', PREFIX + name, keys)
     return 0
 
 

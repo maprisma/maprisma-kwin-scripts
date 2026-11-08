@@ -24,8 +24,44 @@ var Engine = (function () {
 
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+    // order: the tiles in layout order. tree: dwindle's split tree, kept in
+    // step with order ({tile} leaves, {key, a, b} splits; a split's ratio
+    // and direction live in ratios[key] / dirs[key]).
     function newSurface(layout) {
-        return { layout: LAYOUTS.indexOf(layout) >= 0 ? layout : "dwindle", order: [], ratios: {}, dirs: {} };
+        return { layout: LAYOUTS.indexOf(layout) >= 0 ? layout : "dwindle", order: [], ratios: {}, dirs: {},
+            tree: null, next: 0 };
+    }
+
+    function leaves(node, out) {
+        out = out || [];
+        if (!node) return out;
+        if (node.tile !== undefined) out.push(node.tile);
+        else { leaves(node.a, out); leaves(node.b, out); }
+        return out;
+    }
+
+    // The tree as a chain of the order (a surface used with another layout
+    // until now, or tiles the tree does not know).
+    function syncTree(s) {
+        var known = leaves(s.tree);
+        if (known.length === s.order.length && known.every(function (t) { return s.order.indexOf(t) >= 0; })) return;
+        s.tree = null;
+        for (var i = s.order.length - 1; i >= 0; i--) {
+            var leaf = { tile: s.order[i] };
+            s.tree = s.tree ? { key: "d" + (s.next++), a: leaf, b: s.tree } : leaf;
+        }
+    }
+
+    // Replaces the leaf holding `tile` by what fn returns (null: removed).
+    function replaceLeaf(node, tile, fn) {
+        if (!node) return node;
+        if (node.tile !== undefined) return node.tile === tile ? fn(node) : node;
+        var a = replaceLeaf(node.a, tile, fn), b = replaceLeaf(node.b, tile, fn);
+        if (!a) return b;
+        if (!b) return a;
+        node.a = a;
+        node.b = b;
+        return node;
     }
 
     // Splits r in two along dir ("v": side by side, "h": one above the
@@ -53,23 +89,32 @@ var Engine = (function () {
         chain(s, tiles, from + 1, parts[1], dir, prefix, gap, out);
     }
 
-    function dwindle(s, tiles, i, r, gap, out) {
-        var n = tiles.length;
-        if (i === n - 1) { out.rects[tiles[i]] = r; return; }
-        var key = "d" + i;
-        var dir = s.dirs[key] || (r.width >= r.height ? "v" : "h");
-        var t = s.ratios[key] !== undefined ? s.ratios[key] : 0.5;
+    // Lays out a dwindle (sub)tree; a split with nothing shown on one side
+    // gives the other side all of it.
+    function dwindle(s, node, r, gap, shown, out) {
+        if (!node) return;
+        if (node.tile !== undefined) {
+            if (shown(node.tile)) out.rects[node.tile] = r;
+            return;
+        }
+        var la = leaves(node.a).filter(shown), lb = leaves(node.b).filter(shown);
+        if (!la.length) return dwindle(s, node.b, r, gap, shown, out);
+        if (!lb.length) return dwindle(s, node.a, r, gap, shown, out);
+        var dir = s.dirs[node.key] || (r.width >= r.height ? "v" : "h");
+        var t = s.ratios[node.key] !== undefined ? s.ratios[node.key] : 0.5;
         var parts = split(r, dir, t, gap);
-        out.nodes.push({ key: key, dir: dir, rect: r, ratio: t, a: [tiles[i]], b: tiles.slice(i + 1) });
-        out.rects[tiles[i]] = parts[0];
-        dwindle(s, tiles, i + 1, parts[1], gap, out);
+        out.nodes.push({ key: node.key, dir: dir, rect: r, ratio: t, a: la, b: lb });
+        dwindle(s, node.a, parts[0], gap, shown, out);
+        dwindle(s, node.b, parts[1], gap, shown, out);
     }
 
     // {rects: {tile: rect}, nodes: [{key, dir, rect, ratio, a, b}]} for the
     // surface's tiles in `area` (gaps at the edges already taken off).
-    function layout(s, area, gap) {
+    // shown(tile): whether the tile takes part (hidden windows do not).
+    function layout(s, area, gap, shown) {
+        shown = shown || function () { return true; };
         var out = { rects: {}, nodes: [] };
-        var tiles = s.order;
+        var tiles = s.order.filter(shown);
         if (!tiles.length) return out;
         switch (s.layout) {
         case "monocle":
@@ -88,7 +133,8 @@ var Engine = (function () {
             chain(s, tiles, 1, parts[1], dir === "v" ? "h" : "v", "s", gap, out);
             break;
         default:
-            dwindle(s, tiles, 0, area, gap, out);
+            syncTree(s);
+            dwindle(s, s.tree, area, gap, shown, out);
         }
         return out;
     }
@@ -101,19 +147,49 @@ var Engine = (function () {
 
     // --- order -------------------------------------------------------------
 
-    // New tiles: dwindle splits the active tile (it goes right after it),
-    // the others append, as Hyprland does.
+    // New tiles: dwindle splits the active tile (Hyprland), the others
+    // append (after the active one in the order for dwindle too, so a later
+    // switch of layout keeps them together).
     function addTile(s, tile, activeTile) {
         if (s.order.indexOf(tile) >= 0) return;
-        var at = s.layout === "dwindle" ? s.order.indexOf(activeTile) : -1;
-        if (at >= 0) s.order.splice(at + 1, 0, tile);
-        else s.order.push(tile);
+        syncTree(s);
+        var at = s.order.indexOf(activeTile);
+        if (s.layout === "dwindle" && at >= 0) {
+            s.order.splice(at + 1, 0, tile);
+            s.tree = replaceLeaf(s.tree, activeTile, function (leaf) {
+                return { key: "d" + (s.next++), a: leaf, b: { tile: tile } };
+            });
+            return;
+        }
+        if (s.layout === "dwindle" && s.order.length) {
+            var last = s.order[s.order.length - 1];
+            s.order.push(tile);
+            s.tree = replaceLeaf(s.tree, last, function (leaf) {
+                return { key: "d" + (s.next++), a: leaf, b: { tile: tile } };
+            });
+            return;
+        }
+        s.order.push(tile);
+        if (!s.tree) s.tree = { tile: tile };
+        else s.tree = { key: "d" + (s.next++), a: s.tree, b: { tile: tile } };
     }
 
     function removeTile(s, tile) {
         var i = s.order.indexOf(tile);
-        if (i >= 0) s.order.splice(i, 1);
-        return i >= 0;
+        if (i < 0) return false;
+        s.order.splice(i, 1);
+        s.tree = replaceLeaf(s.tree, tile, function () { return null; });
+        return true;
+    }
+
+    // `next` takes the place of `tile` (a window becoming a group, a group
+    // whose last window leaves).
+    function renameTile(s, tile, next) {
+        var i = s.order.indexOf(tile);
+        if (i < 0 || s.order.indexOf(next) >= 0) return false;
+        s.order[i] = next;
+        s.tree = replaceLeaf(s.tree, tile, function () { return { tile: next }; });
+        return true;
     }
 
     function swapTiles(s, a, b) {
@@ -121,6 +197,10 @@ var Engine = (function () {
         if (i < 0 || j < 0 || i === j) return false;
         s.order[i] = b;
         s.order[j] = a;
+        var tmp = "\u0000swap";
+        s.tree = replaceLeaf(s.tree, a, function () { return { tile: tmp }; });
+        s.tree = replaceLeaf(s.tree, b, function () { return { tile: a }; });
+        s.tree = replaceLeaf(s.tree, tmp, function () { return { tile: b }; });
         return true;
     }
 
@@ -136,9 +216,9 @@ var Engine = (function () {
     // pixels. edge "end" moves its right/bottom edge, "start" its left/top
     // edge, null: the nearest split, right/bottom first (Hyprland's
     // resizeactive). Returns true when a ratio changed.
-    function resize(s, area, gap, tile, axis, delta, edge) {
+    function resize(s, area, gap, tile, axis, delta, edge, shown) {
         var dir = axis === "w" ? "v" : "h";
-        var nodes = layout(s, area, gap).nodes.filter(function (n) { return n.dir === dir; });
+        var nodes = layout(s, area, gap, shown).nodes.filter(function (n) { return n.dir === dir; });
         // innermost first: the deepest node holding the tile
         nodes.reverse();
         for (var k = 0; k < nodes.length; k++) {
@@ -158,8 +238,8 @@ var Engine = (function () {
     }
 
     // Super+J: flips the split the tile starts (dwindle) or the master split.
-    function toggleSplit(s, area, gap, tile) {
-        var nodes = layout(s, area, gap).nodes;
+    function toggleSplit(s, area, gap, tile, shown) {
+        var nodes = layout(s, area, gap, shown).nodes;
         var own = null;
         for (var k = nodes.length - 1; k >= 0; k--) {
             if (nodes[k].a.indexOf(tile) >= 0 || nodes[k].b.indexOf(tile) >= 0) { own = nodes[k]; break; }
@@ -247,7 +327,7 @@ var Engine = (function () {
 
     return {
         LAYOUTS: LAYOUTS, rect: rect, clamp: clamp, newSurface: newSurface, layout: layout, inset: inset,
-        addTile: addTile, removeTile: removeTile, swapTiles: swapTiles, cycleLayout: cycleLayout,
+        addTile: addTile, removeTile: removeTile, renameTile: renameTile, swapTiles: swapTiles, leaves: leaves, cycleLayout: cycleLayout,
         resize: resize, toggleSplit: toggleSplit, neighbor: neighbor, tileAt: tileAt,
         overflowTarget: overflowTarget, parseLimits: parseLimits, parseIndexList: parseIndexList,
     };

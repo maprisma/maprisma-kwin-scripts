@@ -139,7 +139,9 @@ Item {
         }
     }
 
-    function manage(w) {
+    // adopting: a window already open when the script starts; the limit
+    // only moves windows as they open.
+    function manage(w, adopting) {
         if (managed[wid(w)] || !eligible(w)) return;
         var g = w.frameGeometry;
         var info = { w: w, floating: floatsByItself(w), pseudo: false, fill: false, maximized: false,
@@ -147,11 +149,22 @@ Item {
         managed[wid(w)] = info;
         var act = activeInfo();
         var activeTile = act && act.surface ? tileOf(act) : null;
-        enforceLimit(info);
+        if (!adopting) enforceLimit(info);
         place(info, activeTile);
         w.desktopsChanged.connect(function () { if (managed[wid(w)]) { place(info, null); } });
         w.outputChanged.connect(function () { if (managed[wid(w)]) place(info, null); });
-        w.minimizedChanged.connect(function () { if (info.surface) schedule(info.surface); });
+        w.minimizedChanged.connect(function () {
+            // The shown window of a group minimized: another one shows.
+            var g = info.group ? groups[info.group] : null;
+            if (g && w.minimized && g.active === wid(w)) {
+                var other = g.members.filter(function (m) { return managed[m] && !managed[m].w.minimized; })[0];
+                if (other) g.active = other;
+            } else if (g && !w.minimized) {
+                g.active = wid(w);
+            }
+            if (info.surface) schedule(info.surface);
+        });
+        w.activitiesChanged.connect(function () { if (info.surface) schedule(info.surface); });
         w.fullScreenChanged.connect(function () { if (info.surface) schedule(info.surface); updateOverlay(); });
         w.maximizedAboutToChange.connect(function (mode) {
             info.maximized = mode !== 0;
@@ -164,7 +177,15 @@ Item {
         });
         w.interactiveMoveResizeFinished.connect(function () { dropped(info); });
         w.frameGeometryChanged.connect(function () {
-            if (Workspace.activeWindow === w) updateOverlay();
+            if (Workspace.activeWindow === w || info.group) updateOverlay();
+            // An app that resized itself goes back into its tile; at most
+            // every 300 ms, so a window that insists (its minimum size) cannot
+            // start a loop.
+            if (applying || !info.surface || w.move || w.resize || w.fullScreen || info.maximized || info.drag) return;
+            var now = Date.now();
+            if (now - (info.enforced || 0) < 300) return;
+            info.enforced = now;
+            schedule(info.surface);
         });
     }
 
@@ -172,7 +193,7 @@ Item {
         var info = managed[wid(w)];
         if (!info) return;
         if (info.group) leaveGroup(info);
-        else if (info.surface && surfaces[info.surface]) eng.removeTile(surfaces[info.surface], wid(w));
+        if (info.surface && surfaces[info.surface]) eng.removeTile(surfaces[info.surface], wid(w));
         if (info.surface) schedule(info.surface);
         delete managed[wid(w)];
         updateOverlay();
@@ -237,10 +258,14 @@ Item {
             : (managed[tile] ? [managed[tile]] : []);
     }
 
+    function onActivity(w) {
+        return !w.activities || w.activities.length === 0 || w.activities.indexOf(Workspace.currentActivity) >= 0;
+    }
+
     // A tile takes part while its (visible) window is there to see.
     function tileShown(tile) {
         var shown = groups[tile] ? managed[groups[tile].active] : managed[tile];
-        return !!shown && !shown.w.minimized && !shown.w.deleted;
+        return !!shown && !shown.w.minimized && !shown.w.deleted && onActivity(shown.w);
     }
 
     function areaOf(key) {
@@ -252,14 +277,14 @@ Item {
         return eng.inset(Workspace.clientArea(KWin.PlacementArea, out, desk), cfg.gaps);
     }
 
-    // {tile: rect} of the surface as shown (tiles of hidden windows left out).
+    // {rects: {tile: rect}, nodes, area} of the surface as shown (tiles of
+    // hidden windows left out).
     function rectsOf(key) {
         var s = surfaces[key], area = areaOf(key);
-        if (!s || !area) return { rects: {}, nodes: [], area: area, view: null };
-        var view = { layout: s.layout, order: s.order.filter(tileShown), ratios: s.ratios, dirs: s.dirs };
-        var out = eng.layout(view, area, cfg.between);
+        if (!s || !area) return { rects: {}, nodes: [], area: area, order: [] };
+        var out = eng.layout(s, area, cfg.between, tileShown);
         out.area = area;
-        out.view = view;
+        out.order = s.order.filter(tileShown);
         return out;
     }
 
@@ -271,9 +296,9 @@ Item {
 
     function relayout(key) {
         var lay = rectsOf(key);
-        if (!lay.view) return;
+        if (!lay.area) return;
         applying = true;
-        lay.view.order.forEach(function (tile) {
+        lay.order.forEach(function (tile) {
             var r = lay.rects[tile];
             var members = membersOf(tile);
             if (groups[tile]) r = eng.rect(r.x, r.y + tabHeight, r.width, r.height - tabHeight);
@@ -306,18 +331,18 @@ Item {
         if (!key || !start || !surfaces[key]) { schedule(key); return; }
         var f = w.frameGeometry, s = surfaces[key], tile = tileOf(info);
         var lay = rectsOf(key);
+        if (!lay.area) { schedule(key); return; }
         var resized = Math.abs(f.width - start.width) > 2 || Math.abs(f.height - start.height) > 2;
         if (resized) {
-            var view = lay.view;
             if (Math.abs(f.width - start.width) > 2) {
                 var leftMoved = Math.abs(f.x - start.x) > 2;
-                eng.resize(view, lay.area, cfg.between, tile, "w", leftMoved ? start.x - f.x : f.width - start.width,
-                    leftMoved ? "start" : "end");
+                eng.resize(s, lay.area, cfg.between, tile, "w", leftMoved ? start.x - f.x : f.width - start.width,
+                    leftMoved ? "start" : "end", tileShown);
             }
             if (Math.abs(f.height - start.height) > 2) {
                 var topMoved = Math.abs(f.y - start.y) > 2;
-                eng.resize(view, lay.area, cfg.between, tile, "h", topMoved ? start.y - f.y : f.height - start.height,
-                    topMoved ? "start" : "end");
+                eng.resize(s, lay.area, cfg.between, tile, "h", topMoved ? start.y - f.y : f.height - start.height,
+                    topMoved ? "start" : "end", tileShown);
             }
         } else {
             var p = Workspace.cursorPos;
@@ -333,32 +358,27 @@ Item {
         var gid = "g" + (++groupCount);
         var s = info.surface ? surfaces[info.surface] : null;
         groups[gid] = { members: [wid(info.w)], active: wid(info.w) };
-        if (s) {
-            var i = s.order.indexOf(wid(info.w));
-            if (i >= 0) s.order[i] = gid;
-        }
+        if (s) eng.renameTile(s, wid(info.w), gid);
         info.group = gid;
         return gid;
     }
 
-    // The window leaves its group and becomes a tile of its own after it.
+    // The window leaves its group and becomes a tile of its own next to it;
+    // the last one to leave takes the group's place.
     function leaveGroup(info) {
         var gid = info.group, g = groups[gid];
-        if (!g) { info.group = null; return; }
+        info.group = null;
+        if (!g) return;
         var id = wid(info.w);
         g.members = g.members.filter(function (m) { return m !== id; });
-        info.group = null;
         var s = info.surface ? surfaces[info.surface] : null;
         if (!g.members.length) {
-            if (s) eng.removeTile(s, gid);
             delete groups[gid];
-        } else if (g.active === id) {
-            g.active = g.members[0];
+            if (s && !eng.renameTile(s, gid, id)) eng.removeTile(s, gid);
+            return;
         }
-        if (s && managed[id] && s.order.indexOf(id) < 0) {
-            var at = s.order.indexOf(gid);
-            if (at >= 0) s.order.splice(at + 1, 0, id);
-        }
+        if (g.active === id) g.active = g.members[0];
+        if (s && s.order.indexOf(gid) >= 0 && s.order.indexOf(id) < 0) eng.addTile(s, id, gid);
     }
 
     function joinGroup(info, gid) {
@@ -397,7 +417,7 @@ Item {
         var out = {}, desk = Workspace.currentDesktop;
         Object.keys(managed).forEach(function (id) {
             var info = managed[id], w = info.w;
-            if (w.minimized || !(w.onAllDesktops || w.desktops.indexOf(desk) >= 0)) return;
+            if (w.minimized || !onActivity(w) || !(w.onAllDesktops || w.desktops.indexOf(desk) >= 0)) return;
             if (info.group && groups[info.group].active !== id) return;
             var f = w.frameGeometry;
             out[id] = { x: f.x, y: f.y, width: f.width, height: f.height };
@@ -470,7 +490,7 @@ Item {
         withActive(function (info) {
             if (!info.surface) return;
             var lay = rectsOf(info.surface);
-            if (eng.toggleSplit(lay.view, lay.area, cfg.between, tileOf(info))) schedule(info.surface);
+            if (lay.area && eng.toggleSplit(surfaces[info.surface], lay.area, cfg.between, tileOf(info), tileShown)) schedule(info.surface);
         });
     }
 
@@ -484,7 +504,7 @@ Item {
                 return;
             }
             var lay = rectsOf(info.surface);
-            if (eng.resize(lay.view, lay.area, cfg.between, tileOf(info), axis, delta, null)) schedule(info.surface);
+            if (lay.area && eng.resize(surfaces[info.surface], lay.area, cfg.between, tileOf(info), axis, delta, null, tileShown)) schedule(info.surface);
         });
     }
 
@@ -556,10 +576,14 @@ Item {
     }
 
     function barsOf() {
-        var bars = [], desk = Workspace.currentDesktop;
+        var bars = [], desk = Workspace.currentDesktop, covered = {};
+        Workspace.stackingOrder.forEach(function (w) {
+            if (w.fullScreen && !w.minimized && w.output && (w.onAllDesktops || w.desktops.indexOf(desk) >= 0)) covered[w.output.name] = true;
+        });
         Object.keys(groups).forEach(function (gid) {
             var g = groups[gid], top = managed[g.active];
             if (!top || !top.surface || top.w.minimized || top.w.fullScreen || top.w.desktops.indexOf(desk) < 0) return;
+            if (!onActivity(top.w) || (top.w.output && covered[top.w.output.name])) return;
             var f = top.w.frameGeometry;
             bars.push({
                 x: f.x, y: f.y - tabHeight, w: f.width, h: tabHeight - 2,
@@ -665,7 +689,7 @@ Item {
 
     Connections {
         target: Workspace
-        function onWindowAdded(w) { root.manage(w); }
+        function onWindowAdded(w) { root.manage(w, false); }
         function onWindowRemoved(w) { root.unmanage(w); }
         function onWindowActivated(w) {
             var info = w ? root.managed[root.wid(w)] : null;
@@ -677,6 +701,7 @@ Item {
             root.updateOverlay();
         }
         function onCurrentDesktopChanged() { root.updateOverlay(); }
+        function onCurrentActivityChanged() { root.scheduleAll(); }
         function onScreensChanged() { root.scheduleAll(); }
         function onVirtualScreenGeometryChanged() { root.scheduleAll(); }
         function onDesktopsChanged() { root.scheduleAll(); }
@@ -694,7 +719,7 @@ Item {
 
     Component.onCompleted: {
         readCfg();
-        Workspace.stackingOrder.forEach(manage);
+        Workspace.stackingOrder.forEach(function (w) { manage(w, true); });
         scheduleAll();
     }
 
