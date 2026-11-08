@@ -88,8 +88,15 @@ class Overlay:
         if not rgba.parse(str(f.get('colour', '#3daee9'))):
             rgba.parse('#3daee9')
         cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, 1.0)
-        x, y = f['x'] - g.x, f['y'] - g.y
-        w, h = f['w'], f['h']
+        # Clipped to this monitor: a window reaching past the screen edge
+        # (maximised, shadows) still shows all four sides.
+        left = max(0.0, f['x'] - g.x)
+        top = max(0.0, f['y'] - g.y)
+        right = min(float(width), f['x'] - g.x + f['w'])
+        bottom = min(float(height), f['y'] - g.y + f['h'])
+        if right - left < 2 * bw or bottom - top < 2 * bw:
+            return
+        x, y, w, h = left, top, right - left, bottom - top
         cr.set_line_width(bw)
         cr.rectangle(x + bw / 2, y + bw / 2, max(0, w - bw), max(0, h - bw))
         cr.stroke()
