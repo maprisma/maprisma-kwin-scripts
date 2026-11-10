@@ -425,7 +425,7 @@ Item {
         return out;
     }
 
-    function focus(dir) {
+    function focusDir(dir) {
         var act = Workspace.activeWindow;
         if (!act) return;
         var next = eng.neighbor(visibleRects(), wid(act), dir);
@@ -629,10 +629,10 @@ Item {
     // Omarchy's tiling keys (Maprisma's install.sh sets the keys that need
     // the German layout and moves conflicting KDE keys away).
     readonly property var shortcuts: [
-        ["Focus Left", "Meta+Left", function () { root.focus("left"); }],
-        ["Focus Right", "Meta+Right", function () { root.focus("right"); }],
-        ["Focus Up", "Meta+Up", function () { root.focus("up"); }],
-        ["Focus Down", "Meta+Down", function () { root.focus("down"); }],
+        ["Focus Left", "Meta+Left", function () { root.focusDir("left"); }],
+        ["Focus Right", "Meta+Right", function () { root.focusDir("right"); }],
+        ["Focus Up", "Meta+Up", function () { root.focusDir("up"); }],
+        ["Focus Down", "Meta+Down", function () { root.focusDir("down"); }],
         ["Swap Left", "Meta+Shift+Left", function () { root.swap("left"); }],
         ["Swap Right", "Meta+Shift+Right", function () { root.swap("right"); }],
         ["Swap Up", "Meta+Shift+Up", function () { root.swap("up"); }],
