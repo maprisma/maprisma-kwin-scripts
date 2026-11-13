@@ -112,3 +112,11 @@ t.eq(E.overflowTarget(1, [0, 2, 0, 0], lim), null, "at the limit: stays");
 t.eq(E.overflowTarget(1, [0, 3, 2, 1], lim), null, "no room anywhere");
 t.eq(E.parseLimits("1:2, 3:3,x:1,4:9"), { 1: 2, 3: 3, 4: 4 }, "limits parsed");
 t.eq(E.parseIndexList("3, 5,,x"), [3, 5], "index list");
+
+// floating by app id: the Maprisma panel apps' --window popups always, plus the user's list
+t.ok(E.floatsByClass("io.github.ubruckhaus.CosmicMaprismaHueLights.Window", "", []), "popup .Window floats");
+t.ok(E.floatsByClass("io.github.ubruckhaus.CosmicMaprismaWlanMonitor", "", ["com.maprisma.launcher"]), "popup floats");
+t.ok(E.floatsByClass("x", "io.github.ubruckhaus.CosmicMaprismaHome.Window", []), "by desktop file too");
+t.ok(E.floatsByClass("com.maprisma.Launcher", "", ["com.maprisma.launcher"]), "user's list");
+t.ok(!E.floatsByClass("com.maprisma.Manager", "com.maprisma.Manager", ["com.maprisma.launcher"]), "a main window tiles");
+t.ok(!E.floatsByClass("org.kde.dolphin", "", []), "others tile");

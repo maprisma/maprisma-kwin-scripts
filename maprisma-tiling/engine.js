@@ -325,10 +325,20 @@ var Engine = (function () {
         return out;
     }
 
+    // The Maprisma panel apps' `--window` popups (app id io.github.ubruckhaus.CosmicMaprisma…,
+    // `.Window` too) float like their Hyprland rule makes them: small fixed-size tools under the
+    // bar, never a tile. Plus the user's floatingClasses (app id or desktop file name).
+    var POPUP_PREFIX = "io.github.ubruckhaus.cosmicmaprisma";
+    function floatsByClass(resourceClass, desktopFileName, floating) {
+        var cls = String(resourceClass || "").toLowerCase(), app = String(desktopFileName || "").toLowerCase();
+        if (cls.indexOf(POPUP_PREFIX) === 0 || app.indexOf(POPUP_PREFIX) === 0) return true;
+        return (floating || []).indexOf(cls) >= 0 || (floating || []).indexOf(app) >= 0;
+    }
+
     return {
         LAYOUTS: LAYOUTS, rect: rect, clamp: clamp, newSurface: newSurface, layout: layout, inset: inset,
         addTile: addTile, removeTile: removeTile, renameTile: renameTile, swapTiles: swapTiles, leaves: leaves, cycleLayout: cycleLayout,
         resize: resize, toggleSplit: toggleSplit, neighbor: neighbor, tileAt: tileAt,
-        overflowTarget: overflowTarget, parseLimits: parseLimits, parseIndexList: parseIndexList,
+        overflowTarget: overflowTarget, parseLimits: parseLimits, parseIndexList: parseIndexList, floatsByClass: floatsByClass,
     };
 })();

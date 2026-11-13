@@ -93,8 +93,7 @@ Item {
         if (w.modal || w.transient || w.dialog || w.splash || w.utility || !w.resizeable) return true;
         if (w.minSize && w.maxSize && w.maxSize.width > 0 && w.minSize.width === w.maxSize.width
             && w.minSize.height === w.maxSize.height) return true;
-        var cls = String(w.resourceClass).toLowerCase(), app = String(w.desktopFileName).toLowerCase();
-        return cfg.floating.indexOf(cls) >= 0 || cfg.floating.indexOf(app) >= 0;
+        return eng.floatsByClass(w.resourceClass, w.desktopFileName, cfg.floating);
     }
 
     function desktopIndex(d) { return Workspace.desktops.indexOf(d) + 1; }
